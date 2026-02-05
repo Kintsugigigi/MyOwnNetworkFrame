@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 
 namespace LiteNetLib.Utils
 {
@@ -31,7 +32,10 @@ namespace LiteNetLib.Utils
 
         public ReadOnlySpan<byte> AsReadOnlySpan() => new ReadOnlySpan<byte>(_data, 0, _position);
 
-        internal static readonly UTF8Encoding uTF8Encoding = new UTF8Encoding(false, true);
+        [ThreadStatic]
+        private static UTF8Encoding Utf8EncodingInternal;
+
+        public static UTF8Encoding uTF8Encoding => Utf8EncodingInternal ??= new UTF8Encoding(false, true);
 
         public NetDataWriter() : this(true, InitialSize) { }
 

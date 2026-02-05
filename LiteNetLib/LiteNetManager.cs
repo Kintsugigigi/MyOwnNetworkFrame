@@ -45,6 +45,7 @@ namespace LiteNetLib
             object IEnumerator.Current => _p;
         }
 
+        // 接收的延迟模拟
         private struct IncomingData
         {
             public NetPacket Data;
@@ -54,6 +55,7 @@ namespace LiteNetLib
         private readonly List<IncomingData> _pingSimulationList = new List<IncomingData>();
 
 #if DEBUG || SIMULATE_NETWORK
+        // 发送的延迟模拟
         private struct OutboundDelayedPacket
         {
             public byte[] Data;
@@ -64,34 +66,49 @@ namespace LiteNetLib
         }
         private readonly List<OutboundDelayedPacket> _outboundSimulationList = new List<OutboundDelayedPacket>();
 #endif
-
+        // 模拟随机延迟
         private readonly Random _randomGenerator = new Random();
+        // 模拟延迟的最低阈值
         private const int MinLatencyThreshold = 5;
 
         private Thread _logicThread;
+        // 不开启 manualMode，LiteNetLib 会启动一个独立的后台线程专门运行 PollEvents
         private bool _manualMode;
+        // 当有新包到达时，它会立刻唤醒挂起的线程，而不是让线程一直空转
         private readonly AutoResetEvent _updateTriggerEvent = new AutoResetEvent(true);
 
+        // 单向链表，存储了所有等待处理的网络事件
         private NetEvent _pendingEventHead;
         private NetEvent _pendingEventTail;
 
+        // 当一个事件处理完后，它不会被销毁，而是被放进这个池子
         private NetEvent _netEventPoolHead;
         private readonly ILiteNetEventListener _netEventListener;
 
+        // 远端发来的连接请求
         private readonly Dictionary<IPEndPoint, ConnectionRequest> _requestsDict = new Dictionary<IPEndPoint, ConnectionRequest>();
 
+        // 当前成功连接人数
         private long _connectedPeersCount;
+        private readonly List<LiteNetPeer> _connectedPeerListCache = new List<LiteNetPeer>();
+
+        // 自定义高级 Hook。可在最外层再加一层处理
         private readonly PacketLayerBase _extraPacketLayer;
+        // 记录当前分配到的最大 ID 值
         private int _lastPeerId;
+        // 存储那些已经断开连接的玩家留下的旧 ID
         private ConcurrentQueue<int> _peerIds = new ConcurrentQueue<int>();
 
+        // 保护 _pendingEventHead 链表的锁
         private readonly object _eventLock = new object();
+        // 确保服务器在关闭时能安全地停止所有子线程
         private volatile bool _isRunning;
 
         /// <summary>
         ///     Used with <see cref="SimulateLatency"/> and <see cref="SimulatePacketLoss"/> to tag packets that
         ///     need to be dropped. Only relevant when <c>DEBUG</c> is defined.
         /// </summary>
+        ///  当模拟器决定扔掉某个包时，会暂时把这个标为 true
         private bool _dropPacket;
 
         //config section
@@ -102,6 +119,7 @@ namespace LiteNetLib
 
         /// <summary>
         /// Enable nat punch messages
+        /// NAT穿透
         /// </summary>
         public bool NatPunchEnabled = false;
 
@@ -109,17 +127,20 @@ namespace LiteNetLib
         /// Library logic update and send period in milliseconds
         /// Lowest values in Windows doesn't change much because of Thread.Sleep precision
         /// To more frequent sends (or sends tied to your game logic) use <see cref="TriggerUpdate"/>
+        /// 心跳频率，Thread Sleep最低也就15ms，除非手动TriggerUpdate
         /// </summary>
         public int UpdateTime = 15;
 
         /// <summary>
         /// Interval for latency detection and checking connection (in milliseconds)
+        /// 每秒发一次 Ping 包
         /// </summary>
         public int PingInterval = 1000;
 
         /// <summary>
         /// If NetManager doesn't receive any packet from remote peer during this time (in milliseconds) then connection will be closed
         /// (including library internal keepalive packets)
+        /// 如果 5 秒内没收到对端的任何包，认为玩家已经彻底掉线
         /// </summary>
         public int DisconnectTimeout = 5000;
 
@@ -150,6 +171,7 @@ namespace LiteNetLib
 
         /// <summary>
         /// Events automatically will be called without PollEvents method from another thread
+        /// 网络层变动时，在主线程触发
         /// </summary>
         public bool UnsyncedEvents = false;
 
@@ -175,11 +197,13 @@ namespace LiteNetLib
 
         /// <summary>
         /// Maximum connection attempts before client stops and call disconnect event.
+        /// 重连次数超过该次数，认为失去连接
         /// </summary>
         public int MaxConnectAttempts = 10;
 
         /// <summary>
         /// Enables socket option "ReuseAddress" for specific purposes
+        /// 防止Socket绑定的端口进入 TIME_WAIT 状态阻塞
         /// </summary>
         public bool ReuseAddress = false;
 
@@ -187,6 +211,7 @@ namespace LiteNetLib
         /// UDP Only Socket Option
         /// Normally IP sockets send packets of data through routers and gateways until they reach the final destination.
         /// If the DontRoute flag is set to True, then data will be delivered on the local subnet only.
+        /// 纯内网
         /// </summary>
         public bool DontRoute = false;
 
@@ -202,11 +227,13 @@ namespace LiteNetLib
 
         /// <summary>
         /// Max fragmented packets size for reliable channels - that equals to data of size fragments count * (MTU-reliable header size)
+        /// 碎片最多可以拆多少
         /// </summary>
         public ushort MaxFragmentsCount = ushort.MaxValue;
 
         /// <summary>
         /// NatPunchModule for NAT hole punching operations
+        /// NAT穿透
         /// </summary>
         public NatPunchModule NatPunchModule => _natPunchModule.Value;
 
@@ -224,6 +251,8 @@ namespace LiteNetLib
 
         /// <summary>
         /// Automatically recycle NetPacketReader after OnReceive event
+        /// 是否在 OnNetworkReceive 回调结束后，自动将 NetPacketReader 放回对象池
+        /// 如果需要把包传给另一个线程慢慢处理，则必须关闭它并手动回收，否则数据会被后续的包覆盖
         /// </summary>
         public bool AutoRecycle;
 
@@ -234,12 +263,14 @@ namespace LiteNetLib
 
         /// <summary>
         /// Override MTU for all new peers registered in this NetManager, will ignores MTU Discovery!
+        /// 强制所有连接使用固定 MTU
         /// </summary>
         public int MtuOverride = 0;
 
         /// <summary>
         /// Automatically discovery mtu starting from. Use at own risk because some routers can break MTU detection
         /// and connection in result
+        /// 自动探测网络路径上能通过的最大包大小
         /// </summary>
         public bool MtuDiscovery = false;
 
@@ -251,24 +282,40 @@ namespace LiteNetLib
         /// <summary>
         /// Experimental feature mostly for servers. Only for Windows/Linux
         /// use direct socket calls for send/receive to drastically increase speed and reduce GC pressure
+        /// 使用原生Socket
         /// </summary>
         public bool UseNativeSockets = false;
 
         /// <summary>
         /// Disconnect peers if HostUnreachable or NetworkUnreachable spawned (old behaviour 0.9.x was true)
+        /// CMP 差错报文，Windows 或 Linux 内核收到这个 ICMP 包后，会在 Socket 上抛出一个异常，直接判断失去连接
         /// </summary>
         public bool DisconnectOnUnreachable = false;
 
         /// <summary>
         /// Allows peer change it's ip (lte to wifi, wifi to lte, etc). Use only on server
+        /// 允许玩家在不重新握手的情况下切换 IP
         /// </summary>
         public bool AllowPeerAddressChange = false;
+
+        /// <summary>
+        /// Returns connected peers list (with internal cached list)
+        /// </summary>
+        public List<LiteNetPeer> ConnectedPeerList
+        {
+            get
+            {
+                GetPeersNonAlloc(_connectedPeerListCache, ConnectionState.Connected);
+                return _connectedPeerListCache;
+            }
+        }
 
         /// <summary>
         /// Returns connected peers count
         /// </summary>
         public int ConnectedPeersCount => (int)Interlocked.Read(ref _connectedPeersCount);
 
+        // 如果之前加了自定义加密层，这里会显示加密层额外占用的字节数，方便系统计算实际可用的 Payload 大小
         public int ExtraPacketSizeForLayer => _extraPacketLayer?.ExtraPacketSizeForLayer ?? 0;
 
         /// <summary>
@@ -289,18 +336,33 @@ namespace LiteNetLib
             _extraPacketLayer = extraPacketLayer;
         }
 
+
+        // 延迟更新
         internal void ConnectionLatencyUpdated(LiteNetPeer fromPeer, int latency) =>
             CreateEvent(NetEvent.EType.ConnectionLatencyUpdated, fromPeer, latency: latency);
 
+        // 送达通知
         internal void MessageDelivered(LiteNetPeer fromPeer, object userData) =>
             CreateEvent(NetEvent.EType.MessageDelivered, fromPeer, userData: userData);
 
+        // 在 ProcessConnectRequest函数中被调用
         internal void DisconnectPeerForce(LiteNetPeer peer,
             DisconnectReason reason,
             SocketError socketErrorCode,
             NetPacket eventData) =>
             DisconnectPeer(peer, reason, socketErrorCode, true, null, 0, 0, eventData);
 
+        /// <summary>
+        /// 内部处理 Peer 断开逻辑，负责清理状态、维护计数并触发事件。
+        /// </summary>
+        /// <param name="peer">要断开连接的对端对象。</param>
+        /// <param name="reason">断开连接的逻辑原因。</param>
+        /// <param name="socketErrorCode">底层 Socket 产生的错误码。</param>
+        /// <param name="force">是否强制断开。若为 true 则不发送断开通知包，立即清理资源。</param>
+        /// <param name="data">发送给对端的遗言内容。</param>
+        /// <param name="start">自定义数据的起始偏移量。</param>
+        /// <param name="count">自定义数据的长度。</param>
+        /// <param name="eventData">触发断开事件的原始数据包。</param>
         private void DisconnectPeer(
             LiteNetPeer peer,
             DisconnectReason reason,
@@ -314,6 +376,7 @@ namespace LiteNetLib
             var shutdownResult = peer.Shutdown(data, start, count, force);
             if (shutdownResult == ShutdownResult.None)
                 return;
+            // 只有状态时链接过的，计数才会减1
             if (shutdownResult == ShutdownResult.WasConnected)
                 Interlocked.Decrement(ref _connectedPeersCount);
             CreateEvent(
@@ -345,6 +408,7 @@ namespace LiteNetLib
             else if (type == NetEvent.EType.MessageDelivered)
                 unsyncEvent = UnsyncedDeliveryEvent;
 
+            // 池化
             lock (_eventLock)
             {
                 evt = _netEventPoolHead;
@@ -367,10 +431,12 @@ namespace LiteNetLib
             evt.ChannelNumber = channelNumber;
             evt.UserData = userData;
 
+            // 线程内立即执行
             if (unsyncEvent || _manualMode)
             {
                 ProcessEvent(evt);
             }
+            // 挂入等待队列
             else
             {
                 lock (_eventLock)
@@ -384,6 +450,7 @@ namespace LiteNetLib
             }
         }
 
+        // 事件处理
         protected virtual void ProcessEvent(NetEvent evt)
         {
             NetDebug.Write("[NM] Processing event: " + evt.Type);
@@ -477,12 +544,14 @@ namespace LiteNetLib
                 try
                 {
                     ProcessDelayedPackets();
+                    // 当前循环距离上一次循环过去了多少毫秒（工作+sleep）
                     float elapsed = (float)(stopwatch.ElapsedTicks / (double)Stopwatch.Frequency * 1000.0);
                     elapsed = elapsed <= 0.0f ? 0.001f : elapsed;
                     stopwatch.Restart();
 
                     for (var netPeer = _headPeer; netPeer != null; netPeer = netPeer.NextPeer)
                     {
+                        // 处理连接超时
                         if (netPeer.ConnectionState == ConnectionState.Disconnected &&
                             netPeer.TimeSinceLastPacket > DisconnectTimeout)
                         {
@@ -505,6 +574,7 @@ namespace LiteNetLib
 
                     ProcessNtpRequests(elapsed);
 
+                    // 计算还要睡多久
                     int sleepTime = UpdateTime - (int)stopwatch.ElapsedMilliseconds;
                     if (sleepTime > 0)
                         _updateTriggerEvent.WaitOne(sleepTime);
@@ -533,6 +603,7 @@ namespace LiteNetLib
                 for (int i = 0; i < _pingSimulationList.Count; i++)
                 {
                     var incomingData = _pingSimulationList[i];
+                    // 如果当前时间已经超过了该包预定的解禁时间
                     if (incomingData.TimeWhenGet <= time)
                     {
                         HandleMessageReceived(incomingData.Data, incomingData.EndPoint);
@@ -543,6 +614,7 @@ namespace LiteNetLib
             }
 
 #if DEBUG || SIMULATE_NETWORK
+            // 发送延迟
             lock (_outboundSimulationList)
             {
                 for (int i = 0; i < _outboundSimulationList.Count; i++)
@@ -585,17 +657,21 @@ namespace LiteNetLib
         }
 
         //connect to
+        // 作为客户端主动调用 netManager Connect 时，这个方法被触发
         protected virtual LiteNetPeer CreateOutgoingPeer(IPEndPoint remoteEndPoint, int id, byte connectNum, ReadOnlySpan<byte> connectData) =>
             new LiteNetPeer(this, remoteEndPoint, id, connectNum, connectData);
 
         //accept
+        // 作为服务端调用 request Accept 时，这个方法被触发
         protected virtual LiteNetPeer CreateIncomingPeer(ConnectionRequest request, int id) =>
             new LiteNetPeer(this, request, id);
 
         //reject
+        // 作为服务端拒绝Peer
         protected virtual LiteNetPeer CreateRejectPeer(IPEndPoint remoteEndPoint, int id) =>
             new LiteNetPeer(this, remoteEndPoint, id);
 
+        // 调用 Conrequest Accept后 或 Reject后执行
         internal LiteNetPeer OnConnectionSolved(ConnectionRequest request, byte[] rejectData, int start, int length)
         {
             LiteNetPeer netPeer = null;
@@ -605,6 +681,7 @@ namespace LiteNetLib
                 NetDebug.Write(NetLogLevel.Trace, "[NM] Peer connect reject force.");
                 if (rejectData != null && length > 0)
                 {
+                    // 构造disc包
                     var shutdownPacket = PoolGetWithProperty(PacketProperty.Disconnect, length);
                     shutdownPacket.ConnectionNumber = request.InternalPacket.ConnectionNumber;
                     FastBitConverter.GetBytes(shutdownPacket.RawData, 1, request.InternalPacket.ConnectionTime);
@@ -632,6 +709,7 @@ namespace LiteNetLib
                 }
                 else //Accept
                 {
+                    // 在这里传入本地分配的新PeerID
                     netPeer = CreateIncomingPeer(request, GetNextPeerId());
                     AddPeer(netPeer);
                     CreateEvent(NetEvent.EType.Connect, netPeer);
@@ -643,9 +721,11 @@ namespace LiteNetLib
             return netPeer;
         }
 
+        // 分配PeerID
         private int GetNextPeerId() =>
             _peerIds.TryDequeue(out int id) ? id : _lastPeerId++;
 
+        // 处理连接请求，在OnMessageReceived-》HandleMsgReceived（普通包转义为握手包后调用）中被调用
         private void ProcessConnectRequest(
             IPEndPoint remoteEndPoint,
             LiteNetPeer netPeer,
@@ -679,6 +759,7 @@ namespace LiteNetLib
                 }
                 //ConnectRequestResult.NewConnection
                 //Set next connection number
+                // 申请新的连接号
                 if (processResult != ConnectRequestResult.P2PLose)
                     connRequest.ConnectionNumber = (byte)((netPeer.ConnectionNum + 1) % NetConstants.MaxConnectionNumber);
                 //To reconnect peer
@@ -688,21 +769,28 @@ namespace LiteNetLib
                 NetDebug.Write($"ConnectRequest Id: {connRequest.ConnectionTime}, EP: {remoteEndPoint}");
             }
 
+            // 客户端为了保证服务器能收到连接请求，通常会在短时间内连续发送多个握手包
             ConnectionRequest req;
             lock (_requestsDict)
             {
+                // 如果字典里已经记录了这个 IP 和端口的请求，说明这只是客户端发来的重试包
                 if (_requestsDict.TryGetValue(remoteEndPoint, out req))
                 {
+                    // req内部会做检测处理，过时或者冗余就丢掉不处理
                     req.UpdateRequest(connRequest);
                     return;
                 }
                 req = new ConnectionRequest(remoteEndPoint, connRequest, this);
+                // 全局唯一加入入口，其他都是检测或remove
                 _requestsDict.Add(remoteEndPoint, req);
             }
             NetDebug.Write($"[NM] Creating request event: {connRequest.ConnectionTime}");
+            //
             CreateEvent(NetEvent.EType.ConnectionRequest, connectionRequest: req);
         }
 
+        // UDP包初审，在Socket的两种ReceiveFrom中被调用2
+        // ReceiveFrom不停地在读，直到缓存区没有内容可读时阻塞
         private void OnMessageReceived(NetPacket packet, IPEndPoint remoteEndPoint)
         {
             if (packet.Size == 0)
@@ -714,6 +802,8 @@ namespace LiteNetLib
             _dropPacket = false;
             HandleSimulateLatency(packet, remoteEndPoint);
             HandleSimulatePacketLoss();
+            // 唯一使用_dropPacket作判定的位置，只和模拟相关
+            // 模拟时，有延迟或丢包了就不读了
             if (_dropPacket)
             {
                 return;
@@ -741,6 +831,7 @@ namespace LiteNetLib
                     {
                         Data = packet,
                         EndPoint = remoteEndPoint,
+                        // 可释放的时间
                         TimeWhenGet = DateTime.UtcNow.AddMilliseconds(inboundLatency)
                     });
                 }
@@ -771,6 +862,7 @@ namespace LiteNetLib
             if (outboundLatency > MinLatencyThreshold)
             {
                 // Create a copy of the data to avoid issues with recycled packets
+                // 如果只是引用原始数组，等延迟时间到了准备发包时，那个数组可能已经被底层回收，数据无效了
                 byte[] dataCopy = new byte[length];
                 Array.Copy(data, start, dataCopy, 0, length);
 
@@ -800,9 +892,11 @@ namespace LiteNetLib
         }
 #endif
 
+        // NetManager 解析任何协议之前，先拦截某些特殊的原始包，可以通过继承并重写这个函数来实现
         internal virtual bool CustomMessageHandle(NetPacket packet, IPEndPoint remoteEndPoint) =>
             false;
 
+        // 在OnMessageReceived中被调用，真正执行Msg读取的函数
         private void HandleMessageReceived(NetPacket packet, IPEndPoint remoteEndPoint)
         {
             var originalPacketSize = packet.Size;
@@ -812,9 +906,11 @@ namespace LiteNetLib
                 Statistics.AddBytesReceived(originalPacketSize);
             }
 
+            // 自定义拦截层
             if (CustomMessageHandle(packet, remoteEndPoint))
                 return;
 
+            // 自定义消息处理层
             if (_extraPacketLayer != null)
             {
                 _extraPacketLayer.ProcessInboundPacket(ref remoteEndPoint, ref packet.RawData, ref packet.Size);
@@ -822,6 +918,7 @@ namespace LiteNetLib
                     return;
             }
 
+            // 报头合法性判断
             if (!packet.Verify())
             {
                 NetDebug.WriteError("[NM] DataReceived: bad!");
@@ -833,9 +930,11 @@ namespace LiteNetLib
             {
                 //special case connect request
                 case PacketProperty.ConnectRequest:
+                    // 协议号不符合
                     if (NetConnectRequestPacket.GetProtocolId(packet) != NetConstants.ProtocolId)
                     {
                         SendRawAndRecycle(PoolGetWithProperty(PacketProperty.InvalidProtocol), remoteEndPoint);
+                        PoolRecycle(packet);
                         return;
                     }
                     break;
@@ -859,22 +958,20 @@ namespace LiteNetLib
             //Check normal packets
             bool peerFound = remoteEndPoint is LiteNetPeer netPeer || TryGetPeer(remoteEndPoint, out netPeer);
 
-            if (peerFound && EnableStatistics)
-            {
-                netPeer.Statistics.IncrementPacketsReceived();
-                netPeer.Statistics.AddBytesReceived(originalPacketSize);
-            }
-
             switch (packet.Property)
             {
                 case PacketProperty.ConnectRequest:
+                    // 将普通包转义为握手包读取数据
                     var connRequest = NetConnectRequestPacket.FromData(packet);
                     if (connRequest != null)
+                        // 这里不回发ACK，只删除Peer和断开连接
                         ProcessConnectRequest(remoteEndPoint, netPeer, connRequest);
                     break;
+                // 拯救一个因为 IP 变动而丢失的旧连接，此时本地的Peer是肯定能查到其还在连接的
                 case PacketProperty.PeerNotFound:
                     if (peerFound) //local
                     {
+                        // 如果本来就没连接上，也就不存在丢失旧连接或漫游恢复
                         if (netPeer.ConnectionState != ConnectionState.Connected)
                             return;
                         if (packet.Size == 1)
@@ -882,15 +979,19 @@ namespace LiteNetLib
                             //first reply
                             //send NetworkChanged packet
                             netPeer.ResetMtu();
+                            // 这里客户端发现服务器不认它了，客户端回发证明
                             SendRaw(NetConnectAcceptPacket.MakeNetworkChanged(netPeer), remoteEndPoint);
                             NetDebug.Write($"PeerNotFound sending connection info: {remoteEndPoint}");
                         }
                         else if (packet.Size == 2 && packet.RawData[1] == 1)
                         {
                             //second reply
+                            // 客户端已经发了证明过去，服务端还是回信说未找到，且带了确认标记
+                            // 直接强行踢掉
                             DisconnectPeerForce(netPeer, DisconnectReason.PeerNotFound, 0, null);
                         }
                     }
+                    // 服务器不认识发包源的Peer，此时这个PeerNotFound为客户端发来的证明包
                     else if (packet.Size > 1) //remote
                     {
                         //check if this is old peer
@@ -899,14 +1000,16 @@ namespace LiteNetLib
                         if (AllowPeerAddressChange)
                         {
                             NetDebug.Write($"[NM] Looks like address change: {packet.Size}");
+                            // 转义为一个ConACK包,内部先读byte获取局部变量，再通过局部变量new
                             var remoteData = NetConnectAcceptPacket.FromData(packet);
                             if (remoteData != null &&
-                                remoteData.PeerNetworkChanged &&
+                                remoteData.PeerNetworkChanged && // isRefused
                                 remoteData.PeerId < _peersArray.Length)
                             {
                                 _peersLock.EnterUpgradeableReadLock();
                                 var peer = _peersArray[remoteData.PeerId];
                                 _peersLock.ExitUpgradeableReadLock();
+                                // 真的找到旧的Peer了
                                 if (peer != null &&
                                     peer.ConnectTime == remoteData.ConnectionTime &&
                                     peer.ConnectionNum == remoteData.ConnectionNumber)
@@ -927,6 +1030,8 @@ namespace LiteNetLib
                         //else peer really not found
                         if (!isOldPeer)
                         {
+                            // 对应上面 packet.Size == 2 && packet.RawData[1] == 1
+                            // C形态的PeerNo：确认不存在，服务端发拒绝包（size=2）
                             var secondResponse = PoolGetWithProperty(PacketProperty.PeerNotFound, 1);
                             secondResponse.RawData[1] = 1;
                             SendRawAndRecycle(secondResponse, remoteEndPoint);
@@ -934,6 +1039,12 @@ namespace LiteNetLib
                     }
                     break;
                 case PacketProperty.InvalidProtocol:
+                    // 对应if (NetConnectRequestPacket.GetProtocolId(packet) != NetConstants.ProtocolId)
+                    //    {
+                    //        SendRawAndRecycle(PoolGetWithProperty(PacketProperty.InvalidProtocol), remoteEndPoint);
+                    //        return;
+                    //    }
+                    // 存在Peer记录并且这个远端的peer正在尝试向外连接
                     if (peerFound && netPeer.ConnectionState == ConnectionState.Outgoing)
                         DisconnectPeerForce(netPeer, DisconnectReason.InvalidProtocol, 0, null);
                     break;
@@ -964,18 +1075,22 @@ namespace LiteNetLib
                     if (!peerFound)
                         return;
                     var connAccept = NetConnectAcceptPacket.FromData(packet);
+                    // 收到ConnectACK包，握手完成，准备就绪
                     if (connAccept != null && netPeer.ProcessConnectAccept(connAccept))
                         CreateEvent(NetEvent.EType.Connect, netPeer);
                     break;
                 default:
                     if (peerFound)
+                        // 合并包的拆分最终交由Peer中的channel来执行
                         netPeer.ProcessPacket(packet);
                     else
+                        // 这里是真正创造PeerNo的源泉，是因为发来的常规包找不到对应Peer，size为1，只有一个字节包含Prop
                         SendRawAndRecycle(PoolGetWithProperty(PacketProperty.PeerNotFound), remoteEndPoint);
                     break;
             }
         }
 
+        // 挂起回收时事件
         internal void CreateReceiveEvent(NetPacket packet, DeliveryMethod method, byte channelNumber, int headerSize, LiteNetPeer fromPeer)
         {
             NetEvent evt;
@@ -1047,13 +1162,24 @@ namespace LiteNetLib
         /// <param name="start">Start of data</param>
         /// <param name="length">Length of data</param>
         /// <param name="options">Send options (reliable, unreliable, etc.)</param>
-        public void SendToAll(byte[] data, int start, int length, DeliveryMethod options)
+        public void SendToAll(byte[] data, int start, int length, DeliveryMethod options) =>
+            SendToAll(data, start, length, 0, options);
+
+        /// <summary>
+        /// Send data to all connected peers
+        /// </summary>
+        /// <param name="data">Data</param>
+        /// <param name="start">Start of data</param>
+        /// <param name="length">Length of data</param>
+        /// <param name="channelNumber">Number of channel (from 0 to channelsCount - 1)</param>
+        /// <param name="options">Send options (reliable, unreliable, etc.)</param>
+        public void SendToAll(byte[] data, int start, int length, byte channelNumber, DeliveryMethod options)
         {
             try
             {
                 _peersLock.EnterReadLock();
                 for (var netPeer = _headPeer; netPeer != null; netPeer = netPeer.NextPeer)
-                    netPeer.Send(data, start, length, options);
+                    netPeer.Send(data, start, length, channelNumber, options);
             }
             finally
             {
@@ -1206,6 +1332,8 @@ namespace LiteNetLib
         /// <param name="addressIPv4">bind to specific ipv4 address</param>
         /// <param name="addressIPv6">bind to specific ipv6 address</param>
         /// <param name="port">port to listen</param>
+        /// 正常模式：NetManager 内部有一个后台线程在不停地收包，只需要调 PollEvents() 就能拿到事件。
+        /// 手动模式：后台线程只接收。必须在主循环里调用 ManualReceive()
         public bool StartInManualMode(string addressIPv4, string addressIPv6, int port)
         {
             IPAddress ipv4 = NetUtils.ResolveAddress(addressIPv4);
@@ -1275,7 +1403,7 @@ namespace LiteNetLib
             _updateTriggerEvent.Set();
 
         /// <summary>
-        /// Receive" pending events. Call this in game update code
+        /// Receive pending events. Call this in game update code
         /// In Manual mode it will call also socket Receive (which can be slow)
         /// </summary>
         public void PollEvents()
@@ -1292,6 +1420,7 @@ namespace LiteNetLib
             if (UnsyncedEvents)
                 return;
             NetEvent pendingEvent;
+            // 悬挂链表拿出来清空，一次性处理完所有事件
             lock (_eventLock)
             {
                 pendingEvent = _pendingEventHead;
@@ -1365,6 +1494,7 @@ namespace LiteNetLib
 
             lock (_requestsDict)
             {
+                // 对面已经连过来了，不要双工链接
                 if (_requestsDict.ContainsKey(target))
                     return null;
 
@@ -1405,6 +1535,8 @@ namespace LiteNetLib
 
             lock (_requestsDict)
             {
+                // 如果你已经收到过来自该地址的连接请求（即你现在是服务器，对方正在连你）
+                // 此时你又反向去连他，代码会返回 null，防止产生混淆
                 if (_requestsDict.ContainsKey(target))
                     return null;
 
@@ -1521,7 +1653,7 @@ namespace LiteNetLib
         /// </summary>
         /// <param name="peers">List that will contain result</param>
         /// <param name="peerState">State of peers</param>
-        public void GetPeers(List<LiteNetPeer> peers, ConnectionState peerState)
+        public void GetPeersNonAlloc(List<LiteNetPeer> peers, ConnectionState peerState)
         {
             peers.Clear();
             _peersLock.EnterReadLock();
@@ -1532,13 +1664,6 @@ namespace LiteNetLib
             }
             _peersLock.ExitReadLock();
         }
-
-        /// <summary>
-        /// Get copy of connected peers (without allocations)
-        /// </summary>
-        /// <param name="peers">List that will contain result</param>
-        public void GetConnectedPeers(List<LiteNetPeer> peers) =>
-            GetPeers(peers, ConnectionState.Connected);
 
         /// <summary>
         /// Disconnect all peers without any additional data

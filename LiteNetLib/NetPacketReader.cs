@@ -2,6 +2,7 @@
 
 namespace LiteNetLib
 {
+    // 主要看基类
     public sealed class NetPacketReader : NetDataReader
     {
         private NetPacket _packet;

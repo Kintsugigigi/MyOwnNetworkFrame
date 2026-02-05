@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using LiteNetLib.Utils;
 
+
 namespace LiteNetLib
 {
     public enum NatAddressType
@@ -17,7 +18,7 @@ namespace LiteNetLib
         void OnNatIntroductionRequest(IPEndPoint localEndPoint, IPEndPoint remoteEndPoint, string token);
         void OnNatIntroductionSuccess(IPEndPoint targetEndPoint, NatAddressType type, string token);
     }
-
+    // 用不上
     public class EventBasedNatPunchListener : INatPunchListener
     {
         public delegate void OnNatIntroductionRequest(IPEndPoint localEndPoint, IPEndPoint remoteEndPoint, string token);

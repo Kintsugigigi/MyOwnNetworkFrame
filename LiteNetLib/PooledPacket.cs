@@ -1,5 +1,6 @@
 ﻿namespace LiteNetLib
 {
+    // 何意味
     public readonly ref struct PooledPacket
     {
         internal readonly NetPacket _packet;

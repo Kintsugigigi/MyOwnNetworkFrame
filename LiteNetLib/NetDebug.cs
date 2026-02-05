@@ -34,6 +34,7 @@ namespace LiteNetLib
     }
 
     /// <summary>
+    /// 这里要自己拓展Logger
     /// Static class for defining your own LiteNetLib logger instead of Console.WriteLine
     /// or Debug.Log if compiled with UNITY flag
     /// </summary>

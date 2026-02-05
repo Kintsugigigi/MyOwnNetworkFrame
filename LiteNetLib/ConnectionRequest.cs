@@ -14,29 +14,39 @@ namespace LiteNetLib
 
     public class ConnectionRequest
     {
+        // 回调通知的对象
         private readonly LiteNetManager _listener;
+        // 一次性开关，防止重复处理
         private int _used;
 
+        // 自定义验证数据
         public NetDataReader Data => InternalPacket.Data;
 
         internal ConnectionRequestResult Result { get; private set; }
+        // 原始的连接请求数据包对象
         internal NetConnectRequestPacket InternalPacket;
 
+        // 请求者的 IP 地址和端口
         public readonly IPEndPoint RemoteEndPoint;
 
+        //
         internal void UpdateRequest(NetConnectRequestPacket connectRequest)
         {
             //old request
+            // 拦截延迟到达的旧请求包
             if (connectRequest.ConnectionTime < InternalPacket.ConnectionTime)
                 return;
 
+            // 忽略冗余包
             if (connectRequest.ConnectionTime == InternalPacket.ConnectionTime &&
                 connectRequest.ConnectionNumber == InternalPacket.ConnectionNumber)
                 return;
-
+            // 有效包
             InternalPacket = connectRequest;
         }
 
+        // 是否执行过操作，线程安全
+        // 试把 _used 从 0 改为 1。如果原本就是 0就返回true
         private bool TryActivate() =>
             Interlocked.CompareExchange(ref _used, 1, 0) == 0;
 
@@ -70,6 +80,7 @@ namespace LiteNetLib
 
         /// <summary>
         /// Accept connection and get new NetPeer as result
+        /// 和上面相比不关心数据内容，直接接收，下面reject也是
         /// </summary>
         /// <returns>Connected NetPeer</returns>
         public LiteNetPeer Accept()

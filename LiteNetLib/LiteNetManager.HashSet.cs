@@ -7,9 +7,12 @@ namespace LiteNetLib
     //minimal hashset class from dotnet with some optimizations
     public partial class LiteNetManager
     {
+        // 小于 int.MaxValue 的最大素数
         private const int MaxPrimeArrayLength = 0x7FFFFFC3;
         private const int HashPrime = 101;
+        // 最高位符号位强行归正
         private const int Lower31BitMask = 0x7FFFFFFF;
+        // 素数
         private static readonly int[] Primes =
         {
             3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919,
@@ -21,6 +24,7 @@ namespace LiteNetLib
 
         private static int HashSetGetPrime(int min)
         {
+            // 容量较小，挑一个比容量大的素数
             foreach (int prime in Primes)
             {
                 if (prime >= min)
@@ -53,12 +57,17 @@ namespace LiteNetLib
 
         private struct Slot
         {
+            // 缓存哈希值
             internal int HashCode;
+            // 链表的下一个索引
             internal int Next;
+
             internal LiteNetPeer Value;
         }
 
+        // _buckets[i] 存储的是 _slots 数组的索引
         private int[] _buckets;
+        // 实际存放数据的地方
         private Slot[] _slots;
         private int _count;
         private int _lastIndex;

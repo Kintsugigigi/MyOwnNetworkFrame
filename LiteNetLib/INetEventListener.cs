@@ -76,6 +76,7 @@ namespace LiteNetLib
 
     /// <summary>
     /// Interface for implementing own INetEventListener. This is a bit faster than use EventBasedListener
+    /// 针对NetPeer的事件处理，NetPeer功能更丰富
     /// </summary>
     public interface INetEventListener
     {
@@ -152,6 +153,7 @@ namespace LiteNetLib
 
     /// <summary>
     /// Interface for implementing own ILiteNetEventListener. This is a bit faster than use EventBasedListener
+    /// 针对LiteNetPeer的事件处理
     /// </summary>
     public interface ILiteNetEventListener
     {

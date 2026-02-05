@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace LiteNetLib
 {
+    // 后面再看
     internal static class NativeSocket
     {
         static unsafe class WinSock

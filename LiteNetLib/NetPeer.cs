@@ -16,16 +16,19 @@ namespace LiteNetLib
 
         protected override int ChannelsCount => ((NetManager)NetManager).ChannelsCount;
 
+        // reject
         internal NetPeer(NetManager netManager, IPEndPoint remoteEndPoint, int id) : base(netManager, remoteEndPoint, id)
         {
 
         }
 
+        // connet to
         internal NetPeer(NetManager netManager, IPEndPoint remoteEndPoint, int id, byte connectNum, ReadOnlySpan<byte> connectData) : base(netManager, remoteEndPoint, id, connectNum, connectData)
         {
             _channels = new BaseChannel[netManager.ChannelsCount * NetConstants.ChannelTypeCount];
         }
 
+        // accept
         internal NetPeer(NetManager netManager, ConnectionRequest request, int id) : base(netManager, request, id)
         {
             _channels = new BaseChannel[netManager.ChannelsCount * NetConstants.ChannelTypeCount];
@@ -165,22 +168,6 @@ namespace LiteNetLib
         /// </exception>
         public void Send(ReadOnlySpan<byte> data, byte channelNumber, DeliveryMethod deliveryMethod) =>
             SendInternal(data, channelNumber, deliveryMethod, null);
-
-        /// <summary>
-        /// Send data to peer
-        /// </summary>
-        /// <param name="data">Data</param>
-        /// <param name="start">Start of data</param>
-        /// <param name="length">Length of data</param>
-        /// <param name="channelNumber">Number of channel (from 0 to channelsCount - 1)</param>
-        /// <param name="deliveryMethod">Delivery method (reliable, unreliable, etc.)</param>
-        /// <exception cref="TooBigPacketException">
-        ///     If size exceeds maximum limit:<para/>
-        ///     MTU - headerSize bytes for Unreliable<para/>
-        ///     Fragment count exceeded ushort.MaxValue<para/>
-        /// </exception>
-        public void Send(byte[] data, int start, int length, byte channelNumber, DeliveryMethod deliveryMethod) =>
-            SendInternal(new ReadOnlySpan<byte>(data, start, length), channelNumber, deliveryMethod, null);
 
         /// <summary>
         /// Returns packets count in queue for reliable channel

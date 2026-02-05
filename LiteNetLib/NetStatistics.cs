@@ -2,6 +2,7 @@
 
 namespace LiteNetLib
 {
+    // 注意Mge和Peer都有自己的Statics
     public sealed class NetStatistics
     {
         private long _packetsSent;

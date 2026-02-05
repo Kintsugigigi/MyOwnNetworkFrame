@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace LiteNetLib.Utils
 {
+    // 仅需GetRemainingBytesSpan()
     public class NetDataReader
     {
         protected byte[] _data;

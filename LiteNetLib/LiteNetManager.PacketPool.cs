@@ -14,7 +14,7 @@ namespace LiteNetLib
         public int PacketPoolSize = 1000;
 
         public int PoolCount => _poolCount;
-        
+
         private NetPacket PoolGetWithData(PacketProperty property, byte[] data, int start, int length)
         {
             int headerSize = NetPacket.GetHeaderSize(property);
@@ -41,21 +41,26 @@ namespace LiteNetLib
 
         internal NetPacket PoolGetPacket(int size)
         {
+            // size超出预设最大值，现场new
             if (size > NetConstants.MaxPacketSize)
                 return new NetPacket(size);
 
             NetPacket packet;
+
+            // 从链表中拿
             lock (_poolLock)
             {
                 packet = _poolHead;
                 if (packet == null)
                     return new NetPacket(size);
-                
+
                 _poolHead = _poolHead.Next;
                 _poolCount--;
             }
-            
+
             packet.Size = size;
+
+            // 如果旧数组不够大，就new新数组
             if (packet.RawData.Length < size)
                 packet.RawData = new byte[size];
             return packet;
@@ -68,7 +73,7 @@ namespace LiteNetLib
                 //Don't pool big packets. Save memory
                 return;
             }
-            
+
             //Clean fragmented flag
             packet.RawData[0] = 0;
             lock (_poolLock)

@@ -14,6 +14,7 @@ namespace LiteNetLib
         {
             Connect,
             Disconnect,
+            // 正常接收的Pac
             Receive,
             ReceiveUnconnected,
             Error,

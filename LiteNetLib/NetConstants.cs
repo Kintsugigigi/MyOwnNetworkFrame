@@ -43,6 +43,7 @@
         public const int SocketTTL = 255;
 
         public const int HeaderSize = 1;
+        // Prop,Sequence(2),ChannelID
         public const int ChanneledHeaderSize = 4;
         public const int FragmentHeaderSize = 6;
         public const int FragmentedHeaderTotalSize = ChanneledHeaderSize + FragmentHeaderSize;
@@ -68,7 +69,9 @@
         };
 
         //Max possible single packet size
+        //初始最大传输单元
         public static readonly int InitialMtu = PossibleMtu[0];
+        // 单包物理极限
         public static readonly int MaxPacketSize = PossibleMtu[PossibleMtu.Length - 1];
         public static readonly int MaxUnreliableDataSize = MaxPacketSize - HeaderSize;
 
