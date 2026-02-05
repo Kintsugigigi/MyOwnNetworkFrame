@@ -60,6 +60,8 @@ namespace LiteNetLib
                 return true;
             }
 
+            public bool IsEmpty => _packet == null;
+
             public bool Clear(LiteNetPeer peer)
             {
                 if (_packet != null)
@@ -147,7 +149,7 @@ namespace LiteNetLib
                 // 分片包不进行合并
                 if (packet.IsFragmented)
                     break;
-                // 该包实际Paylaod
+
                 int payloadSize = packet.Size - NetConstants.ChanneledHeaderSize;
                 int newSize = mergePos + MergeHeaderSize + payloadSize;
                 // 如果当前已经合并了一些包（mergePos > 0），并且剩下的空间已经非常局促（不足以再塞下一个 20 字节左右的小包），那么 LiteNetLib 宁愿现在就“封箱”发货
@@ -278,7 +280,7 @@ namespace LiteNetLib
                     int rel = NetUtils.RelativeSequenceNumber(pendingSeq, ackWindowStart);
                     if (rel >= _windowSize)
                     {
-                        NetDebug.Write("[PA]REL: " + rel);
+                        //NetDebug.Write($"[PA]REL: {rel}");
                         break;
                     }
 
@@ -290,15 +292,14 @@ namespace LiteNetLib
                     // 左移N位，判断bit上的字节是否为0
                     if ((acksData[currentByte] & (1 << currentBit)) == 0)
                     {
-                        // 开启统计功能，系统增加丢包计数
-                        if (Peer.NetManager.EnableStatistics)
+                        if (Peer.NetManager.EnableStatistics && !_pendingPackets[pendingIdx].IsEmpty)
                         {
                             Peer.Statistics.IncrementPacketLoss();
                             Peer.NetManager.Statistics.IncrementPacketLoss();
                         }
 
                         //Skip false ack
-                        NetDebug.Write($"[PA]False ack: {pendingSeq}");
+                        //NetDebug.Write($"[PA]False ack: {pendingSeq}");
                         continue;
                     }
 

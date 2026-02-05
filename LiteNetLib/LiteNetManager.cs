@@ -299,18 +299,6 @@ namespace LiteNetLib
         public bool AllowPeerAddressChange = false;
 
         /// <summary>
-        /// Returns connected peers list (with internal cached list)
-        /// </summary>
-        public List<LiteNetPeer> ConnectedPeerList
-        {
-            get
-            {
-                GetPeersNonAlloc(_connectedPeerListCache, ConnectionState.Connected);
-                return _connectedPeerListCache;
-            }
-        }
-
-        /// <summary>
         /// Returns connected peers count
         /// </summary>
         public int ConnectedPeersCount => (int)Interlocked.Read(ref _connectedPeersCount);
@@ -1162,24 +1150,13 @@ namespace LiteNetLib
         /// <param name="start">Start of data</param>
         /// <param name="length">Length of data</param>
         /// <param name="options">Send options (reliable, unreliable, etc.)</param>
-        public void SendToAll(byte[] data, int start, int length, DeliveryMethod options) =>
-            SendToAll(data, start, length, 0, options);
-
-        /// <summary>
-        /// Send data to all connected peers
-        /// </summary>
-        /// <param name="data">Data</param>
-        /// <param name="start">Start of data</param>
-        /// <param name="length">Length of data</param>
-        /// <param name="channelNumber">Number of channel (from 0 to channelsCount - 1)</param>
-        /// <param name="options">Send options (reliable, unreliable, etc.)</param>
-        public void SendToAll(byte[] data, int start, int length, byte channelNumber, DeliveryMethod options)
+        public void SendToAll(byte[] data, int start, int length, DeliveryMethod options)
         {
             try
             {
                 _peersLock.EnterReadLock();
                 for (var netPeer = _headPeer; netPeer != null; netPeer = netPeer.NextPeer)
-                    netPeer.Send(data, start, length, channelNumber, options);
+                    netPeer.Send(data, start, length, options);
             }
             finally
             {
@@ -1653,7 +1630,7 @@ namespace LiteNetLib
         /// </summary>
         /// <param name="peers">List that will contain result</param>
         /// <param name="peerState">State of peers</param>
-        public void GetPeersNonAlloc(List<LiteNetPeer> peers, ConnectionState peerState)
+        public void GetPeers(List<LiteNetPeer> peers, ConnectionState peerState)
         {
             peers.Clear();
             _peersLock.EnterReadLock();
@@ -1664,6 +1641,13 @@ namespace LiteNetLib
             }
             _peersLock.ExitReadLock();
         }
+
+        /// <summary>
+        /// Get copy of connected peers (without allocations)
+        /// </summary>
+        /// <param name="peers">List that will contain result</param>
+        public void GetConnectedPeers(List<LiteNetPeer> peers) =>
+            GetPeers(peers, ConnectionState.Connected);
 
         /// <summary>
         /// Disconnect all peers without any additional data

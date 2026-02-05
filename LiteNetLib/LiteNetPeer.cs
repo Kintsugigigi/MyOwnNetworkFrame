@@ -61,7 +61,7 @@ namespace LiteNetLib
         private int _rtt;
         private int _avgRtt;
         private int _rttCount;
-        private double _resendDelay = 27.0;
+        private float _resendDelay = 27.0f;
         private float _pingSendTimer;
         private float _rttResetTimer;
         private readonly Stopwatch _pingTimer = new Stopwatch();
@@ -196,7 +196,17 @@ namespace LiteNetLib
         /// </summary>
         public float TimeSinceLastPacket => _timeSinceLastPacket;
 
-        internal double ResendDelay => _resendDelay;
+        /// <summary>
+        /// Fixed part of the resend delay
+        /// </summary>
+        public float ResendFixedDelay = 25.0f;
+
+        /// <summary>
+        /// Multiplication factor of Rtt in the resend delay calculation
+        /// </summary>
+        public float ResendRttMultiplier = 2.1f;
+
+        internal float ResendDelay => _resendDelay;
 
         /// <summary>
         /// Application defined object containing data about the connection
@@ -807,8 +817,7 @@ namespace LiteNetLib
             _rttCount++;
             // 平均往返时间
             _avgRtt = _rtt/_rttCount;
-            // 重传等待时间
-            _resendDelay = 25.0 + _avgRtt * 2.1; // 25 ms + double rtt
+            _resendDelay = ResendFixedDelay + _avgRtt * ResendRttMultiplier;
         }
 
         // 在RealiableChannel的ProcessIncomingPacket被调用
